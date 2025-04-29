@@ -1,0 +1,495 @@
+Ac:
+  empirical: 1.95
+  ionic:
+    3: 1.12
+Ag:
+  empirical: 1.6
+  ionic:
+    1: 0.67
+    2: 0.79
+    3: 0.67
+Al:
+  empirical: 1.25
+  ionic:
+    3: 0.39
+Am:
+  empirical: 1.75
+  ionic:
+    2: 1.21
+    3: 0.975
+    4: 0.85
+As:
+  empirical: 1.15
+  ionic:
+    3: 0.58
+    5: 0.335
+At:
+  empirical: .nan
+  ionic:
+    7: 0.62
+Au:
+  empirical: 1.35
+  ionic:
+    1: 1.37
+    3: 0.68
+    5: 0.57
+B:
+  empirical: 0.85
+  ionic:
+    3: 0.01
+Ba:
+  empirical: 2.15
+  ionic:
+    2: 1.35
+Be:
+  empirical: 1.05
+  ionic:
+    2: 0.16
+Bi:
+  empirical: 1.6
+  ionic:
+    3: 0.96
+    5: 0.76
+Bk:
+  empirical: .nan
+  ionic:
+    3: 0.96
+    4: 0.83
+Br:
+  empirical: 1.15
+  ionic:
+    -1: 1.96
+    3: 0.59
+    5: 0.31
+    7: 0.25
+C:
+  empirical: 0.7000000000000001
+  ionic:
+    4: -0.08
+Ca:
+  empirical: 1.8
+  ionic:
+    2: 1.0
+Cd:
+  empirical: 1.55
+  ionic:
+    2: 0.78
+Ce:
+  empirical: 1.85
+  ionic:
+    3: 1.01
+    4: 0.87
+Cf:
+  empirical: .nan
+  ionic:
+    3: 0.95
+    4: 0.821
+Cl:
+  empirical: 1.0
+  ionic:
+    -1: 1.81
+    5: 0.12
+    7: 0.08
+Cm:
+  empirical: .nan
+  ionic:
+    3: 0.97
+    4: 0.85
+Co:
+  empirical: 1.35
+  ionic:
+    2: 0.58
+    3: 0.545
+    4: 0.4
+Cr:
+  empirical: 1.4
+  ionic:
+    2: 0.73
+    3: 0.615
+    4: 0.41
+    5: 0.345
+    6: 0.26
+Cs:
+  empirical: 2.6
+  ionic:
+    1: 1.67
+Cu:
+  empirical: 1.35
+  ionic:
+    1: 0.46
+    2: 0.57
+    3: 0.54
+D:
+  empirical: .nan
+  ionic:
+    1: -0.1
+Dy:
+  empirical: 1.75
+  ionic:
+    2: 1.07
+    3: 0.912
+Er:
+  empirical: 1.75
+  ionic:
+    3: 0.89
+Eu:
+  empirical: 1.85
+  ionic:
+    2: 1.17
+    3: 0.947
+F:
+  empirical: 0.5
+  ionic:
+    -1: 1.285
+    7: 0.08
+Fe:
+  empirical: 1.4
+  ionic:
+    2: 0.61
+    3: 0.49
+    4: 0.585
+    6: 0.25
+Fr:
+  empirical: .nan
+  ionic:
+    1: 1.8
+Ga:
+  empirical: 1.3
+  ionic:
+    3: 0.47
+Gd:
+  empirical: 1.8
+  ionic:
+    3: 0.938
+Ge:
+  empirical: 1.25
+  ionic:
+    2: 0.73
+    4: 0.39
+H:
+  empirical: 0.25
+  ionic:
+    -1: 1.22
+    1: -0.38
+Hf:
+  empirical: 1.55
+  ionic:
+    4: 0.58
+Hg:
+  empirical: 1.5
+  ionic:
+    1: 0.97
+    2: 0.69
+Ho:
+  empirical: 1.75
+  ionic:
+    3: 0.901
+I:
+  empirical: 1.4
+  ionic:
+    -1: 2.2
+    5: 0.44
+    7: 0.42
+In:
+  empirical: 1.55
+  ionic:
+    3: 0.62
+Ir:
+  empirical: 1.35
+  ionic:
+    3: 0.68
+    4: 0.625
+    5: 0.57
+K:
+  empirical: 2.2
+  ionic:
+    1: 1.37
+La:
+  empirical: 1.95
+  ionic:
+    3: 1.032
+Li:
+  empirical: 1.45
+  ionic:
+    1: 0.59
+Lu:
+  empirical: 1.75
+  ionic:
+    3: 0.861
+Mg:
+  empirical: 1.5
+  ionic:
+    2: 0.57
+Mn:
+  empirical: 1.4
+  ionic:
+    2: 0.66
+    3: 0.58
+    4: 0.39
+    5: 0.33
+    6: 0.255
+    7: 0.25
+Mo:
+  empirical: 1.45
+  ionic:
+    3: 0.69
+    4: 0.65
+    5: 0.46
+    6: 0.41
+N:
+  empirical: 0.65
+  ionic:
+    -3: 1.46
+    3: 0.16
+    5: -0.104
+Na:
+  empirical: 1.8
+  ionic:
+    1: 0.99
+Nb:
+  empirical: 1.45
+  ionic:
+    3: 0.72
+    4: 0.68
+    5: 0.48
+Nd:
+  empirical: 1.85
+  ionic:
+    2: 1.29
+    3: 0.983
+Ni:
+  empirical: 1.35
+  ionic:
+    2: 0.49
+    3: 0.56
+    4: 0.48
+No:
+  empirical: .nan
+  ionic:
+    2: 1.1
+Np:
+  empirical: 1.75
+  ionic:
+    2: 1.1
+    3: 1.01
+    4: 0.87
+    5: 0.75
+    6: 0.72
+    7: 0.71
+O:
+  empirical: 0.6
+  ionic:
+    -2: 1.35
+OH:
+  empirical: .nan
+  ionic:
+    -1: 1.32
+Os:
+  empirical: 1.3
+  ionic:
+    4: 0.63
+    5: 0.575
+    6: 0.49
+    7: 0.525
+    8: 0.39
+P:
+  empirical: 1.0
+  ionic:
+    3: 0.44
+    5: 0.17
+Pa:
+  empirical: 1.8
+  ionic:
+    3: 1.04
+    4: 0.9
+    5: 0.78
+Pb:
+  empirical: 1.8
+  ionic:
+    2: 0.98
+    4: 0.65
+Pd:
+  empirical: 1.4
+  ionic:
+    1: 0.59
+    2: 0.64
+    3: 0.76
+    4: 0.615
+Pm:
+  empirical: 1.85
+  ionic:
+    3: 0.97
+Po:
+  empirical: 1.9
+  ionic:
+    4: 0.94
+    6: 0.67
+Pr:
+  empirical: 1.85
+  ionic:
+    3: 0.99
+    4: 0.85
+Pt:
+  empirical: 1.35
+  ionic:
+    2: 0.6
+    4: 0.625
+    5: 0.57
+Pu:
+  empirical: 1.75
+  ionic:
+    3: 1.0
+    4: 0.86
+    5: 0.74
+    6: 0.71
+Ra:
+  empirical: 2.15
+  ionic:
+    2: 1.48
+Rb:
+  empirical: 2.35
+  ionic:
+    1: 1.52
+Re:
+  empirical: 1.35
+  ionic:
+    4: 0.63
+    5: 0.58
+    6: 0.55
+    7: 0.38
+Rh:
+  empirical: 1.35
+  ionic:
+    3: 0.665
+    4: 0.6
+    5: 0.55
+Ru:
+  empirical: 1.3
+  ionic:
+    3: 0.68
+    4: 0.62
+    5: 0.565
+    7: 0.38
+    8: 0.36
+S:
+  empirical: 1.0
+  ionic:
+    -2: 1.84
+    4: 0.37
+    6: 0.12
+Sb:
+  empirical: 1.45
+  ionic:
+    3: 0.76
+    5: 0.6
+Sc:
+  empirical: 1.6
+  ionic:
+    3: 0.745
+Se:
+  empirical: 1.15
+  ionic:
+    -2: 1.98
+    4: 0.5
+    6: 0.28
+Si:
+  empirical: 1.1
+  ionic:
+    4: 0.26
+Sm:
+  empirical: 1.85
+  ionic:
+    2: 1.22
+    3: 0.958
+Sn:
+  empirical: 1.45
+  ionic:
+    4: 0.55
+Sr:
+  empirical: 2.0
+  ionic:
+    2: 1.18
+Ta:
+  empirical: 1.45
+  ionic:
+    3: 0.72
+    4: 0.68
+    5: 0.64
+Tb:
+  empirical: 1.75
+  ionic:
+    3: 0.923
+    4: 0.76
+Tc:
+  empirical: 1.35
+  ionic:
+    4: 0.645
+    5: 0.6
+    7: 0.37
+Te:
+  empirical: 1.4
+  ionic:
+    -2: 2.21
+    4: 0.52
+    6: 0.43
+Th:
+  empirical: 1.8
+  ionic:
+    4: 0.94
+Ti:
+  empirical: 1.4
+  ionic:
+    2: 0.86
+    3: 0.67
+    4: 0.42
+Tl:
+  empirical: 1.9
+  ionic:
+    1: 1.5
+    3: 0.75
+Tm:
+  empirical: 1.75
+  ionic:
+    2: 1.03
+    3: 0.88
+U:
+  empirical: 1.75
+  ionic:
+    3: 1.025
+    4: 0.89
+    5: 0.76
+    6: 0.45
+V:
+  empirical: 1.35
+  ionic:
+    2: 0.79
+    3: 0.64
+    4: 0.53
+    5: 0.355
+W:
+  empirical: 1.35
+  ionic:
+    4: 0.66
+    5: 0.62
+    6: 0.42
+Xe:
+  empirical: .nan
+  ionic:
+    8: 0.4
+Y:
+  empirical: 1.8
+  ionic:
+    3: 0.9
+Yb:
+  empirical: 1.75
+  ionic:
+    2: 1.02
+    3: 0.868
+Zn:
+  empirical: 1.35
+  ionic:
+    2: 0.6
+Zr:
+  empirical: 1.55
+  ionic:
+    4: 0.59

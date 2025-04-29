@@ -1,0 +1,9 @@
+# Ignore Python cache
+__pycache__/
+*.py[cod]
+
+# build
+build/
+
+# egg
+docent.egg-info

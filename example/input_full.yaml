@@ -1,0 +1,47 @@
+data:
+    input_path: '/path/to/input/test.cif'  # name / path for cif file(s)
+    #input_path: '/path/to/input/'  # name / path for cif file(s)
+    output_path: '/path/to/save'
+
+calculator:
+    calc_type: 'sevennet-batch'  # sevennet, sevennet-energy, sevennet-batch, custom
+    calc_path: '7net-0'  # path of potential / if custom, *.py returning ase calculator
+    calc_args:  # args pass to calculator, only for sevennet / sevennet-batch
+        modal: 'mpa'
+    # batch_size: 10  # only for sevennet batch calculator, set batch size
+    avg_atom_num: 10  # only for sevennet batch calculator, set avg # of atoms in each batch
+
+
+supercell:
+    supercell_criterion:
+        criterion: 'mul'  # str, 'mul', 'latt', 'natom', 'entropy', 'permutation': # of total replication, # of replication in each lattice, # of atoms in cell, entropy, permutation
+        min: 2
+        max: 10
+
+    precision: 0.011  # precision of occupation. e.g. 0.011 means occupation > x.989 treated as x+1
+    positional_disorder:
+        # if both hard_cutoff, element_cutoff given, bond length < max(1, multiplier*(r1+r2)) would be sampled
+        hard_cutoff: 1.0  # Optional[float/int], use it as global cutoff radius (Angstrom)
+        element_cutoff: 'cutoff.yaml'  # Optional[str], read radius of ions. see examples/elem_radii.{pkl, json, yaml}
+        multiplier: 0.5  # for elemental cutoff, if (r1 + r2) * multiplier > bond length, gather it as the same orbit
+
+
+monte_carlo:
+    seed: 777  # random seed for monte carlo
+    mc_method: 'population_annealing'  # 'parallel_tempering' (alias: 'pt', 'rxmc'), 'population_annealing' (alias 'pa')
+    mc_params:
+        n_replicas: 30  # int
+        n_temperatures: 10  # int, number of sampled temperatures. overwritten by n_replicas in parallel tempering. or 'adaptive', (for pa) ends when reach t_low
+        n_cycles: 100  # int, total number of cycles (mc steps + temperature swap), overwritten by n_temperatures in population annealing. or 'adaptive', (for pa) ends when reach t_low
+        n_mc_steps: 100 # int, total number of Monte Carlo steps in each cycle
+        t_low: 0.  # float, int or 'adaptive'
+        t_high: 'inf'  # float, int, 'inf' or 'adaptive'
+        mc_mode: 'exchange' # str, if exchange, exchange between two sites, elif permute, randomly permute one orbit
+        t_schedule_mode: 'temperature'  # str, one of temperature (linear), beta (linear in beta), adaptive (adaptive), only used for pa
+        pa_overlap: 0.7  # Optional, float, used for adaptive t_scheduling in pa and t_high = adaptive
+        
+
+    save:
+        per_mc_step: 10  # Optional int, save replica as extxyz with every this steps
+        per_cycle: 1  # Optional int, default 1, if per_mc_step given, set this as 1
+        final_minima: 10  # Optional int, default 10, how many minimum structures to be saved 
