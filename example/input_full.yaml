@@ -13,12 +13,21 @@ calculator:
 
 
 supercell:
-    supercell_criterion:
-        criterion: 'mul'  # str, 'mul', 'latt', 'natom', 'entropy', 'permutation': # of total replication, # of replication in each lattice, # of atoms in cell, entropy, permutation
-        min: 2
-        max: 10
-
-    precision: 0.011  # precision of occupation. e.g. 0.011 means occupation > x.989 treated as x+1
+    sanitize_cif_neutral:  # adjust occupation of cif to satisfy charge neutrality using lagrange multiplier
+        attempt_tolerance: 0.01  # if abs(total charge) > attempt_tolerance, try sanitize
+        relative_error: False  # Optional (default False), if given True, use relative error
+        multiplicity_power: 2  # Optional (default 0), if value given, multiply (multiplicity**(value)) as loss weight
+        #clip: 0.1 # Optiponal, if given float, clip adjustment above this value
+    supercell_mode: 'auto'  # str, if 'auto', automatically generates, elif 'n1xn2xn3', generate n1 n2 n3 supercell (e.g. '2x2x3')
+    supercell_unit: 'orbit' # str, 'orbit', 'site': if 'orbit', supercell is decided by how many orbit is required, while 'site' mode decide supercell by real atomic site
+    # e.g., 4a site with {Mg: 0.5, Ca: 0.5} -> 1x1x1 cell is sufficient for 'site' mode (2 Mg, 2 Ca sites in original unit cell) while 'orbit' mode requires at least 1x1x2
+    # 'orbit' mode is more realistic (especially in correlated disorder), while always requiring higher supercell multiplier (i.e. higher computational cost).
+    supercell_criterion:  # default: {latt: {min: 1, max: 10}}
+        latt:  # str, 'mul', 'latt', 'natom', 'entropy', 'permutation': # of total replication, # of replication in each lattice, # of atoms in cell, entropy, permutation
+            min: 2
+            max: 7
+    supercell_selection: 'size'  # str, 'size', 'error', 'product': For possible supercell, select smallest supercell in size / error in occupation / product of the two 
+    tolerance: 0.005  # tolerance of occupation. e.g. 0.005 means 0.5 ~ (0.495, 0.505). Reference of occupation is adjusted after sanitizing occupation for neutral (if using sanitization)
     positional_disorder:
         # if both hard_cutoff, element_cutoff given, bond length < max(1, multiplier*(r1+r2)) would be sampled
         hard_cutoff: 1.0  # Optional[float/int], use it as global cutoff radius (Angstrom)
@@ -39,7 +48,6 @@ monte_carlo:
         mc_mode: 'exchange' # str, if exchange, exchange between two sites, elif permute, randomly permute one orbit
         t_schedule_mode: 'temperature'  # str, one of temperature (linear), beta (linear in beta), adaptive (adaptive), only used for pa
         pa_overlap: 0.7  # Optional, float, used for adaptive t_scheduling in pa and t_high = adaptive
-        
 
     save:
         per_mc_step: 10  # Optional int, save replica as extxyz with every this steps

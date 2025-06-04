@@ -47,11 +47,33 @@ def check_calc_config(config):
 
 def check_supercell_config(config):
     config_sup = config['supercell']
+    assert isinstance(config_sup['sanitize_cif_neutral'], dict)
+    assert all(
+        [
+            k.lower() in ['attempt_tolerance', 'relative_error', 'multiplicity_power', 'clip']
+            for k in config_sup['sanitize_cif_neutral'].keys()
+        ]
+    )
+    assert isinstance(config_sup['supercell_mode'], str)
+    assert 'x' in config_sup['supercell_mode'].lower() or config_sup['supercell_mode'].lower() == 'auto'
+    assert isinstance(config_sup['supercell_unit'], str)
+    assert config_sup['supercell_unit'].lower() in ['orbit', 'site']
     assert isinstance(config_sup['supercell_criterion'], dict)
-    assert config_sup['supercell_criterion']['criterion'].lower() in ['mul', 'latt', 'natom', 'entropy', 'permutation']
-    assert _isinstance_in_list(config_sup['supercell_criterion']['min'], [int, float])
-    assert _isinstance_in_list(config_sup['supercell_criterion']['max'], [int, float])
-    assert isinstance(config_sup['precision'], float)
+    assert all(
+        [
+            k.lower() in ['mul', 'latt', 'natom', 'entropy', 'permutation']
+            for k in config_sup['supercell_criterion'].keys()
+        ]
+    )
+    assert all(
+        [
+            _isinstance_in_list(v['min'], [int, float]) and _isinstance_in_list(v['max'], [int, float])
+            for v in config_sup['supercell_criterion'].values()
+        ]
+    )
+    assert config_sup['supercell_selection'].lower() in ['size', 'error', 'product']
+    assert isinstance(config_sup['tolerance'], float)
+    assert config_sup['tolerance'] < 1
     assert isinstance(config_sup['positional_disorder'], dict)
     assert _isinstance_in_list(config_sup['positional_disorder'].get('hard_cutoff', 1.), [int, float])
     assert isinstance(config_sup['positional_disorder'].get('element_cutoff', '.yaml'), str)
