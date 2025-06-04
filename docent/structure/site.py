@@ -1,7 +1,6 @@
 from typing import Union, List, Optional
 from pymatgen.core.sites import PeriodicSite
 import numpy as np
-import math
 from docent.util.utils import get_intersection
 
 
@@ -12,23 +11,32 @@ class VirtualSite:
         idx: Optional[int] = None
     ):
         self.site = site
-        self.species = {}
+        species = {}
+        oxidation = {}
+        self.label = site.label
         # similar to PeriodicSite.species, but ignore oxidation number
         # since in practice, dft and mlp does not distinguish them
         for specie in site.as_dict()['species']:
             element = specie['element']
             occu = specie['occu']
-            if element not in self.species:
-                self.species[element] = 0.
-            self.species[element] += occu
-        self.label = site.label
+            if element not in species:
+                species[element] = 0.
+            species[element] += occu
+            oxidation[element] = specie['oxidation_state']
+
+        self.species = {self.label: species}
+        self.oxidation = {self.label: oxidation}
         self.is_occ = False
+        self.occ_label = None
         self.occ_element = None
         self.occ_position = None
         self.occ_position_idx = None
 
-        self.allowed_elements = site.species.chemical_system_set
-        self.allowed_positions = {k: [site.coords] for k in self.allowed_elements}
+        self.allowed_labels = {self.label}
+        self.allowed_elements = {self.label: site.species.chemical_system_set}
+        self.allowed_positions = {
+            self.label: {k: [site.coords] for k in site.species.chemical_system_set}
+        }
         self.idx = idx
 
 
@@ -43,17 +51,20 @@ class VirtualSite:
     def occupy_site(
         self,
         element: str,
+        label: Optional[str] = None,
         position_idx: int = 0,
     ):
-        assert element in self.allowed_elements
+        assert element in self.allowed_elements[self.label]
         self.is_occ = True
+        self.occ_label = self.label
         self.occ_element = element
-        self.occ_position = self.allowed_positions[element][position_idx]
+        self.occ_position = self.allowed_positions[self.label][element][position_idx]
         self.occ_position_idx = position_idx
         
 
     def vacant_site(self):
         self.is_occ = False
+        self.occ_label = None
         self.occ_element = None
         self.occ_position = None
         self.occ_position_idx = None
@@ -65,25 +76,46 @@ class CombinedSite:
         sites: List[VirtualSite],
     ):
         labels_sorted = sorted(list(set([site.label for site in sites])))
+        """
         self.sites = []
         for label in labels_sorted:
             for site in sites:
                 if label != site.label:
                     continue
                 self.sites.append(site)  # sort by label to preserve position order
-
+        """
+        self.sites = sites
         self.label = ''.join(labels_sorted)
         self.species = {}
+        self.oxidation = {}
+        self.allowed_labels = set(labels_sorted)
+        self.allowed_positions = {}
+        self.allowed_elements = {}
         for site in self.sites:
-            for specie, occu in site.species.items():
-                if specie not in self.species:
-                    self.species[specie] = 0.
-                self.species[specie] += occu
+            self.oxidation.update(site.oxidation)
+            self.allowed_elements.update(site.allowed_elements)
+            if site.label not in self.species:
+                self.species[site.label] = {}
+                self.allowed_positions[site.label] =\
+                    {e: [] for e in site.allowed_elements[site.label]}
+
+            for occ_dict in site.species.values():
+                for elem, occu in occ_dict.items():
+                    if elem not in self.species[site.label]:
+                        self.species[site.label][elem] = 0.
+                    self.species[site.label][elem] += occu
+
+            for elem, pos in site.allowed_positions[site.label].items():
+                self.allowed_positions[site.label][elem] += pos
+
         self.is_occ = False
-        self.occ_position = None
+        self.occ_label = None
         self.occ_element = None
+        self.occ_position = None
+        self.occ_position_idx = None
         self.idx = [site.idx for site in self.sites]
 
+        """
         all_elems = []
         for site in self.sites:
             all_elems += list(site.allowed_elements)
@@ -93,6 +125,7 @@ class CombinedSite:
             all_pos = site.allowed_positions
             for elem, pos in all_pos.items():
                 self.allowed_positions[elem] += pos
+        """
 
 
     def __len__(self):
@@ -106,12 +139,15 @@ class CombinedSite:
     def occupy_site(
         self,
         element: str,
-        position_idx: Optional[List[int]] = None,
+        label: str,
+        position_idx: Optional[int] = None,
     ):
-        assert element in self.allowed_elements
+        assert label in self.allowed_labels
+        assert element in self.allowed_elements[label]
         self.is_occ = True
+        self.occ_label = label
         self.occ_element = element
-        pos_candidates = self.allowed_positions[element]
+        pos_candidates = self.allowed_positions[label][element]
         if position_idx is None:
             position_idx = np.random.choice(np.arange(len(pos_candidates)), 1)[0]
         self.occ_position = pos_candidates[position_idx]
@@ -120,20 +156,14 @@ class CombinedSite:
 
     def vacant_site(self):
         self.is_occ = False
+        self.occ_label = None
         self.occ_element = None
         self.occ_position = None
         self.occ_position_idx = None
 
 
-def calc_site_entropy(site):
-    entropy = 0
-    occus = site.species.values()
-    for occu in occus:
-        entropy -= occu * math.log(occu)
-    return entropy
-
-
 def get_radii_from_dict(pmg_sites, radii_dict):
+    # TODO: change pmg_sites to VSite
     radii = []
     for site in pmg_sites:
         species = site.as_dict()['species']
@@ -205,6 +235,5 @@ def sites_from_pymatgen(stct, config):
             continue
         vsite = VirtualSite(site, idx)
         all_sites.append(vsite)
-
     return all_sites
 

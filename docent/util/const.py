@@ -6,6 +6,7 @@ T_MIN = 1  # in K
 MAX_SUPERCELL_MUL = 10
 LOG_ORDER = ['T (K)', 'mean (eV)', 'std (eV)', 'min (eV)', 'Q1 (eV)', 'mid (eV)', 'Q3 (eV)', 'max (eV)', 'MC accept', 'RX accept']
 RES_INTERVAL = 3
+FULLY_OCCUPY = 0.99
 
 DEFAULT_DATA_CONFIG = {
     'input_path': Essential(),
@@ -22,12 +23,17 @@ DEFAULT_CALC_CONFIG = {
 }
 
 DEFAULT_SUPERCELL_CONFIG = {
+    'sanitize_cif_neutral': {},
+    'supercell_mode': 'auto',
+    'supercell_unit': 'orbit',
     'supercell_criterion': {
-        'criterion': 'latt',
-        'min': 1,
-        'max': 10,
+        'latt': {
+            'min': 1,
+            'max': 10,
+        },
     },
-    'precision': 0.011,
+    'supercell_selection': 'size',
+    'tolerance': 0.005,
     'positional_disorder': {
         'hard_cutoff': 1.0
     }

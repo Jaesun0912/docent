@@ -58,7 +58,7 @@ def combination(total, samples):
         num *= comb(total, sample)
         total -= sample
 
-    return int(num)
+    return num
 
 
 def diff_to_integer(num):
