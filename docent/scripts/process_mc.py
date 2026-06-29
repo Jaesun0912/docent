@@ -5,7 +5,7 @@ from docent.monte_carlo.replica import Replica
 from docent.monte_carlo.temperature import AdaptiveTemperatureScheduler
 
 
-def process_mc_for_replica(config, crystals, calc, save_path):
+def process_mc_for_replica(config, crystals, calc, free_calc, save_path):
     logger = Logger()
     mc_method = config['mc_method']
     mc_params = config['mc_params']
@@ -21,7 +21,7 @@ def process_mc_for_replica(config, crystals, calc, save_path):
     save_per_cycle = save.get('per_cycle', 1)
 
     replica = Replica(crystals, save_minima_num)
-    replica.calc_energy_of_replica(calc)
+    replica.calc_energy_of_replica(calc, free_calc, disorder_only=config.get('disorder_only', False))
     replica.init_t_scheduler_from_config(config)
 
     if (
@@ -32,14 +32,16 @@ def process_mc_for_replica(config, crystals, calc, save_path):
         total_iter += '?'
 
     logger.log_bar()
+    """
     logger.writeline(f'Cycle 0/{total_iter}')
     stat_dct = replica.get_statistics()
     for idx in range(len(replica.crystals)):
         stat_dct[f'R{idx+1}']['T (K)'] = None
     logger.recorder.update_recorder(stat_dct)
     logger.log_mc_cycle()
+    """
     replica.save_replica_ase_atoms(f'{save_path}/init.extxyz')
-    replica.prepare_next_cycle()
+    #replica.prepare_next_cycle()
 
     # for cycle in range(n_cycles):
     while True:
@@ -50,12 +52,17 @@ def process_mc_for_replica(config, crystals, calc, save_path):
                 mc_params['n_mc_steps'],
                 f'Cycle {cycle}/{total_iter}'
             )
-            replica.process_single_mc_step(calc, mode=mc_params['mc_mode'])
+            replica.process_single_mc_step(
+                calc,
+                free_calc,
+                disorder_only=config.get('disorder_only', False),
+                mode=mc_params['mc_mode']
+            )
             if (mc_step + 1) % save_per_mc_step == 0:
                 replica.save_replica_ase_atoms(f'{save_path}/C{cycle}M{mc_step}.extxyz')
+
+        #replica.update_mc_result()
         logger.finalize_progress_bar()
-        if cycle % save_per_cycle == 0:
-            replica.save_replica_ase_atoms(f'{save_path}/C{cycle}.extxyz')
 
         t_before_update = replica.t_scheduler.temperatures
         if stop := replica.t_scheduler.is_stop_iter():
@@ -63,7 +70,12 @@ def process_mc_for_replica(config, crystals, calc, save_path):
         elif mc_method == 'pt':
             replica.process_parallel_tempering()
         else:
-            replica.process_population_annealing()
+            replica.process_population_annealing(free_calc)
+
+        replica.update_mc_result()
+        if cycle % save_per_cycle == 0:
+            replica.save_replica_ase_atoms(f'{save_path}/C{cycle}.extxyz')
+            replica.save_mc_result(f'{save_path}/mc_result.pkl')
 
         stat_dct = replica.get_statistics()
         for idx, t in enumerate(t_before_update):
@@ -78,5 +90,6 @@ def process_mc_for_replica(config, crystals, calc, save_path):
 
     replica.save_minima_ase_atoms(f'{save_path}/minima.extxyz')
     replica.save_replica_ase_atoms(f'{save_path}/final.extxyz')
+    replica.save_mc_result(f'{save_path}/mc_result.pkl')
 
     #return replica

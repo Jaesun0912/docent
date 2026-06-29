@@ -48,6 +48,21 @@ class VirtualSite:
         return f'VSite {self.label} {self.species}'
 
 
+    def copy(self):
+        vsite = self.__class__(
+            site = self.site,
+            idx = self.idx
+        )
+
+        vsite.is_occ = self.is_occ
+        vsite.occ_label = self.occ_label
+        vsite.occ_element = self.occ_element
+        vsite.occ_position = self.occ_position.copy() if self.occ_position is not None else None
+        vsite.occ_position_idx = self.occ_position_idx
+
+        return vsite
+
+
     def occupy_site(
         self,
         element: str,
@@ -136,6 +151,20 @@ class CombinedSite:
         return f'CSite {self.label} {self.species}'
 
 
+    def copy(self):
+        csite = self.__class__(
+            sites = [site.copy() for site in self.sites]
+        )
+
+        csite.is_occ = self.is_occ
+        csite.occ_label = self.occ_label
+        csite.occ_element = self.occ_element
+        csite.occ_position = self.occ_position.copy() if self.occ_position is not None else None
+        csite.occ_position_idx = self.occ_position_idx
+
+        return csite
+
+
     def occupy_site(
         self,
         element: str,
@@ -193,29 +222,21 @@ def group_eq_sites(sites):
 def sites_from_pymatgen(stct, config):
     pmg_sites = stct.sites
     cell = stct.lattice.matrix
+    elems = stct.chemical_system_set
     positions = []
     for site in pmg_sites:
         pos = site.coords
         positions.append(pos)
     radii = config['positional_disorder'].get('element_cutoff', None)
     multiplier = config['positional_disorder'].get('multiplier', 1.)
-    hard_cutoff = config['positional_disorder'].get('hard_cutoff', None)
-    if isinstance(radii, str):
-        if radii.endswith('.yaml'):
-            import yaml
-            with open(radii, 'r') as f:
-                radii_dict = yaml.load(f, Loader=yaml.FullLoader)
-        elif radii.endswith('.json'):
-            import json
-            with open(radii, 'r') as f:
-                radii_dict = json.load(f)
-        elif radii.endswith('.pkl') or radii.endswith('.pickle'):
-            import pickle
-            with open(radii, 'rb') as f:
-                radii_dict = pickle.load(f)
-        else:
-            raise NotImplementedError(f'Failed to read file: {radii}')
-        radii = get_radii_from_dict(pmg_sites, radii_dict)
+    hard_cutoff = (
+        config['positional_disorder'].get('hard_cutoff', None)
+        if 'H' not in elems
+        else config['positional_disorder'].get('hydrogen_hard_cutoff', None)
+    )
+
+    if isinstance(radii, dict):
+        radii = get_radii_from_dict(pmg_sites, radii)
         radii = [r*multiplier for r in radii]
 
     all_sites = []

@@ -1,12 +1,12 @@
 from typing import List
 import numpy as np
 import math
-from copy import deepcopy
+import pickle
 from ase.io import write
 
 from docent.structure.orbit import Crystal
 from docent.util.utils import get_statistics_of_list, add_if_is_not_adaptive
-from docent.util.calc import get_energy_of_atoms_list
+from docent.util.calc import get_energy_of_atoms_list, get_free_energy_of_atoms_list
 from docent.util.const import kB
 from docent.monte_carlo.temperature import (
     ConstantTemperatureScheduler, 
@@ -35,6 +35,14 @@ class Replica:
         self.mc_accept = np.zeros(len(crystals))
         self.mc_step = 0
         self.energy_recorder = [[] for _ in range(len(crystals))]
+        self.free_energy_recorder = [[] for _ in range(len(crystals))]
+        self.resampled_free_energy_recorder = []
+        self.mc_recorder = {
+            'energy': {float('inf'): []},
+            'free_energy': {float('inf'): []},
+            'free_energy_resampled': {float('inf'): []},
+            'num_resampled': {float('inf'): []},
+        }
 
 
     @property
@@ -47,17 +55,31 @@ class Replica:
         self.cycle = self.sc.cycle
 
 
-    def calc_energy_of_replica(self, calc):
+    def calc_energy_of_replica(self, calc, free_calc, disorder_only=False):
         # Only called in the initialization of MC step
         atoms_list = []
         for crystal in self.crystals:
-            atoms_list.append(crystal.to_ase_atoms())
+            atoms_list.append(crystal.to_ase_atoms(disorder_only=disorder_only))
         energy_list = get_energy_of_atoms_list(atoms_list, calc)
-        for idx, (energy, crystal) in enumerate(zip(energy_list, self.crystals)):
+        free_energy_list = (
+            get_free_energy_of_atoms_list(
+                atoms_list, float('inf'), True, free_calc
+            ) if free_calc is not None
+            else [dict()] * len(atoms_list)
+        )
+        self.mc_recorder['n_atoms'] = len(self.crystals[0].to_ase_atoms())
+        self.mc_recorder['entropy_conf_inf'] = self.crystals[0].entropy
+        for idx, (energy, free_energy, crystal) in enumerate(
+            zip(energy_list, free_energy_list, self.crystals)
+        ):
+            self.mc_recorder['energy'][float('inf')].append(energy)
+            self.mc_recorder['free_energy'][float('inf')].append(free_energy)
             crystal.energy = energy
+            crystal.info.update(free_energy)
             self.energy_recorder[idx].append(energy)
+            self.free_energy_recorder[idx].append(free_energy)
             if energy in sorted(energy_list)[:self.n_minima]:
-                self.unique_minima[f'R{idx+1}_init'] = deepcopy(crystal)
+                self.unique_minima[f'R{idx+1}_init'] = crystal.copy()
 
 
     def init_t_scheduler_from_config(self, config):
@@ -65,6 +87,12 @@ class Replica:
         tconfig = config['mc_params'].copy()
         tconfig['inv_mode'] = tconfig['t_schedule_mode'].lower() == 'beta'
         if config['mc_method'] == 'pt':
+            if isinstance(th:=tconfig['t_high'], str) and th.lower() == 'adaptive':
+                beta = solve_beta(
+                    energy_list=[c.energy for c in self.crystals],
+                    overlap=tconfig['pa_overlap'],
+                )
+                tconfig['t_high'] = beta2temp(beta)
             temperatures = temp_range_from_mc_params(**tconfig)
             self.t_scheduler = ConstantTemperatureScheduler(
                 temperatures, tconfig['n_cycles'],
@@ -73,12 +101,14 @@ class Replica:
         else:  # pa
             t_kwargs = {'n_replica': tconfig['n_replicas']}
             if isinstance(th:=tconfig['t_high'], str) and th.lower() == 'adaptive':
+                """
                 beta = solve_beta(
                     energy_list=[c.energy for c in self.crystals],
                     overlap=tconfig['pa_overlap'],
                 )
+                """
+                beta = 0.
                 tconfig['t_high'] = beta2temp(beta)
-                print(beta, tconfig['t_high'], [c.energy for c in self.crystals], flush=True)
             t_kwargs['temperature'] = float(tconfig['t_high'])
 
             add_if_is_not_adaptive(tconfig, 't_low', t_kwargs)
@@ -113,47 +143,94 @@ class Replica:
         self.unique_minima[f'R{replica_idx+1}C{self.cycle}M{self.mc_step}'] = crystal
 
 
-    def process_single_mc_step(self, calc, mode='exchange'):
-        old_crystals, new_crystals, new_atoms_list = [], [], []
-        for crystal, temperature in zip(self.crystals, self.t_scheduler.temperatures):
-            old_crystal = deepcopy(crystal)
-            old_crystals.append(old_crystal)
+    def process_single_mc_step(self, calc, free_calc, disorder_only=False, mode='exchange'):
+        if free_calc is None and np.isinf(self.t_scheduler.temperatures).all():
+            return
+        exchange_info, new_atoms_list = [], []
+        for crystal in self.crystals:
             if mode == 'exchange':
-                crystal.random_exchange_random_idx()
+                orbit_idx, i, j, pos_idx = crystal.random_exchange_random_idx()
+                exchange_info.append((orbit_idx, j, i, pos_idx))
             else:
+                # this will not work!
                 crystal.random_permute_random_idx()
-            new_crystal = deepcopy(crystal)
-            new_crystals.append(new_crystal)
-            new_atoms_list.append(new_crystal.to_ase_atoms())
+            new_atoms_list.append(crystal.to_ase_atoms(disorder_only=disorder_only))
 
         new_energy_list = get_energy_of_atoms_list(new_atoms_list, calc)
-        accepted_crystals = []
-        for idx, (temperature, new_energy, new_crystal, old_crystal) in enumerate(
-            zip(self.t_scheduler.temperatures, new_energy_list, new_crystals, old_crystals)
+        new_free_energy_list = (
+            get_free_energy_of_atoms_list(
+                new_atoms_list, self.t_scheduler.temperatures, True, free_calc
+            ) if free_calc is not None
+            else [dict()] * len(new_atoms_list)
+        )
+        minimum_energy_indices = sorted(
+            range(len(new_energy_list)), key=lambda i: new_energy_list[i]
+        )[:self.n_minima]
+        for idx, (
+                temperature,
+                new_energy,
+                new_free_energy_info,
+                crystal,
+                exchange_idx
+            ) in enumerate(
+                zip(
+                    self.t_scheduler.temperatures,
+                    new_energy_list,
+                    new_free_energy_list,
+                    self.crystals,
+                    exchange_info
+                )
         ):
-            new_crystal.energy = new_energy
-            if new_energy < self._get_maximum_minima_energy():
-                self._update_minima_dct(deepcopy(new_crystal), idx)
+            #new_crystal.energy = new_energy
+            if (
+                idx in minimum_energy_indices
+                and new_energy < self._get_maximum_minima_energy()
+            ):
+                #self._update_minima_dct.copy()deepcopy(new_crystal), idx)
+                minima = crystal.copy()
+                minima.energy = new_energy
+                self._update_minima_dct(minima, idx)
 
-            old_energy = old_crystal.energy
-            prob = 1 if new_energy < old_energy \
-                else math.exp(-(new_energy-old_energy)*temp2beta(temperature))
+            old_energy = crystal.energy
+            old_free_energy_info = crystal.info
+            if 'vib_entropy' in new_free_energy_info:
+                diff = (
+                    (
+                        new_energy + new_free_energy_info['internal_energy']
+                        - old_energy - old_free_energy_info['internal_energy']
+                    ) * temp2beta(temperature)
+                    + (
+                        old_free_energy_info['vib_entropy']
+                        - new_free_energy_info['vib_entropy']
+                    ) / kB
+                )
+            else:
+                diff = (new_energy - old_energy) * temp2beta(temperature)
+            prob = 1 if diff < 0 \
+                else math.exp(-diff)
             rand_num = np.random.rand()  # [0, 1)
             self.mc_attempt[idx] += 1
+
             if prob > rand_num:
-                accepted_crystals.append(deepcopy(new_crystal))
+                #accepted_crystals.append(deepcopy(new_crystal))
+                #accepted_crystals.append(new_crystal)
+                crystal.energy = new_energy
                 self.mc_accept[idx] += 1
                 self.energy_recorder[idx].append(new_energy)
+                self.free_energy_recorder[idx].append(new_free_energy_info)
+                stamp = 'acc'
             else:
-                accepted_crystals.append(deepcopy(old_crystal))
+                #accepted_crystals.append(deepcopy(old_crystal))
+                #accepted_crystals.append(old_crystal)
+                crystal.exchange_idx_deterministic_idx(*exchange_idx)
                 self.energy_recorder[idx].append(old_energy)
+                self.free_energy_recorder[idx].append(old_free_energy_info)
+                stamp = 'dec'
 
         self.mc_step += 1
-        self.crystals = accepted_crystals
-
 
     def process_parallel_tempering(self):
-        for idx in range(self.cycle%2, len(self.crystals)-1, 2):
+        for idx in range((self.cycle-1)%2, len(self.crystals)-1, 2):
             self.rx_attempt[idx] += 1
             self.rx_attempt[idx+1] += 1
             t_i = self.t_scheduler.temperatures[idx]
@@ -172,16 +249,28 @@ class Replica:
                 self.rx_accept[idx+1] += 1
 
 
-    def process_population_annealing(self):
+    def process_population_annealing(self, free_calc=None):
         probs = []
         num_rep = len(self.crystals)
         t_orig = self.t_scheduler.temperatures[0]
-        self.t_scheduler.step_next_temperature([c.energy for c in self.crystals])
+        self.t_scheduler.step_next_temperature(
+            [c.energy for c in self.crystals], [c.info for c in self.crystals]
+        )
         t_new = self.t_scheduler.temperatures[0]
+        atoms_list = [crystal.to_ase_atoms() for crystal in self.crystals]
+        new_free_energy_list = (
+            get_free_energy_of_atoms_list(
+                atoms_list, t_new, True, free_calc
+            ) if free_calc is not None
+            else [dict()] * len(atoms_list)
+        )
+        self.resampled_free_energy_recorder = new_free_energy_list
         probs = calculate_boltzmann_weight(
             energy_list=[c.energy for c in self.crystals],
             beta=temp2beta(t_new),
             beta_ref=temp2beta(t_orig),
+            free_energy_list = new_free_energy_list,
+            ref_free_energy_list=[c.info for c in self.crystals],
         )
         n_samples = np.array([math.floor(num_rep*p) for p in probs])
         assert num_rep >= sum(n_samples)
@@ -189,7 +278,12 @@ class Replica:
         assert num_rep == sum(n_samples)
         crystals = []
         for idx, n in enumerate(n_samples):
-            crystals += [deepcopy(self.crystals[idx]) for _ in range(n)]
+            #crystals += [deepcopy(self.crystals[idx]) for _ in range(n)]
+            #crystals += [self.crystals[idx].copy() for _ in range(n)]
+            for _ in range(n):
+                resampled = self.crystals[idx].copy()
+                resampled.info.update(new_free_energy_list[idx])
+                crystals.append(resampled)
             self.rx_accept[idx] = n
             self.rx_attempt[idx] = num_rep
         self.crystals = crystals
@@ -229,12 +323,30 @@ class Replica:
         return en_stat_dct
 
 
+    def update_mc_result(self):
+        for temperature, energy_list, free_energy_list in zip(
+            self.t_scheduler.temperatures, self.energy_recorder, self.free_energy_recorder
+        ):
+            temperature = round(temperature, 2)
+            if temperature not in self.mc_recorder['energy']:
+                self.mc_recorder['energy'][temperature] = []
+                self.mc_recorder['free_energy'][temperature] = []
+                self.mc_recorder['free_energy_resampled'][temperature] = []
+                self.mc_recorder['num_resampled'][temperature] = []
+            self.mc_recorder['energy'][temperature].append(energy_list[-1])
+            self.mc_recorder['free_energy'][temperature].append(free_energy_list[-1])
+            self.mc_recorder['free_energy_resampled'][temperature].append(self.resampled_free_energy_recorder)
+            self.mc_recorder['num_resampled'][temperature].append(self.rx_accept.tolist())
+
+
     def prepare_next_cycle(self):
         self.mc_step = 0
         self.t_scheduler.update_cycle()
         self.mc_attempt = np.zeros(len(self.crystals))
         self.mc_accept = np.zeros(len(self.crystals))
         self.energy_recorder = [[] for _ in range(len(self.crystals))]
+        self.free_energy_recorder = [[] for _ in range(len(self.crystals))]
+        self.resampled_free_energy_recorder = []
 
 
     def save_replica_ase_atoms(self, fpath):
@@ -260,4 +372,8 @@ class Replica:
             atoms_list.append(atoms)
 
         write(fpath, atoms_list)
+
+    def save_mc_result(self, fpath):
+        with open(fpath, 'wb') as f:
+            pickle.dump(self.mc_recorder, f)
 

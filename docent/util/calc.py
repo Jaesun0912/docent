@@ -48,7 +48,8 @@ class SevenNetEnergyCalculator(SevenNetCalculator):
             sevennet_config=sevennet_config,
             **kwargs
         )
-        del self.model.force_output
+        if 'force_output' in self.model._modules:
+            del self.model.force_output
         self.implemented_properties = ['energy']
 
     def output_to_results(self, output):
@@ -80,7 +81,7 @@ class SevenNetEnergyCalculator(SevenNetCalculator):
             data = self.pad(data)
 
         with torch.no_grad():
-            output = self.model(data)
+            output = self.model(data).detach().cpu()
         self.results = self.output_to_results(output)
 
 
@@ -153,7 +154,7 @@ class SevenNetBatchCalculator(SevenNetEnergyCalculator):
         with torch.no_grad():
             for batch in tqdm(loader, desc=desc, leave=False):
                 batch = batch.to(self.device)
-                output_list = self.model(batch)
+                output_list = self.model(batch).detach().cpu()
                 for energy in torch.unbind(output_list[KEY.PRED_TOTAL_ENERGY]):
                     result_dict = {'energy': energy.item()}
                     result_dict_list.append(result_dict)
@@ -162,6 +163,192 @@ class SevenNetBatchCalculator(SevenNetEnergyCalculator):
         for atoms, result_dict in zip(atoms_list, result_dict_list):
             single_calc = SinglePointCalculator(atoms, **result_dict)
             result.append(single_calc.get_atoms())
+
+        return result
+
+
+class ThreeNetBatchCalculator(SevenNetBatchCalculator):
+    # TODO: implement this in original sevennet
+    # To avoid dependency issues with pyte
+    def __init__(
+        self,
+        model='7net-0',
+        file_type='checkpoint',
+        device='auto',
+        modal=None,
+        use_avg_model=False,
+        compile=False,
+        compile_kwargs=None,
+        enable_cueq=False,
+        sevennet_config=None,
+        batch_size=None,
+        avg_atom_num=None,
+        converged_temperature=3000,
+        **kwargs
+    ):
+        super().__init__(
+            model=model,
+            file_type=file_type,
+            device=device,
+            modal=modal,
+            use_avg_model=use_avg_model,
+            compile=compile,
+            compile_kwargs=compile_kwargs,
+            enable_cueq=enable_cueq,
+            sevennet_config=sevennet_config,
+            batch_size=batch_size,
+            avg_atom_num=avg_atom_num,
+            **kwargs
+        )
+        self.converged_temperature = converged_temperature
+        self.model.infer_heat_capacity(False)
+
+
+    def _calculate_lt(self, loader, desc):
+        result_dict_list = []
+        self.model.infer_grad_entropy(True)
+        self.model.infer_debye(False)
+        for batch in tqdm(loader, desc=desc, leave=False):
+            batch = batch.to(self.device)
+            output_list = self.model(batch).detach().cpu()
+            for internal_energy, entropy, free_energy in zip(
+                torch.unbind(output_list[KEY.PRED_TOTAL_INTERNAL_ENERGY]),
+                torch.unbind(output_list[KEY.PRED_TOTAL_ENTROPY]),
+                torch.unbind(output_list[KEY.PRED_TOTAL_FREE_ENERGY]),
+            ):
+                result_dict = {
+                    'internal_energy': internal_energy.item(),
+                    'vib_entropy': entropy.item(),
+                    'vib_free_energy': free_energy.item(),
+                }
+                result_dict_list.append(result_dict)
+        return result_dict_list
+
+
+    def _calculate_ht(self, loader, desc):
+        result_dict_list = []
+        self.model.infer_grad_entropy(False)
+        self.model.infer_debye(False)
+        with torch.no_grad():
+            for batch in tqdm(loader, desc=desc, leave=False):
+                batch = batch.to(self.device)
+                output_list = self.model(batch).detach().cpu()
+                for temperature, head_asymptot, head_entropy, free_energy in zip(
+                    torch.unbind(output_list[KEY.TEMPERATURE]),
+                    torch.unbind(output_list[KEY.PRED_TOTAL_HEAD_ASYMPTOT]),
+                    torch.unbind(output_list[KEY.PRED_TOTAL_HEAD_ENTROPY]),
+                    torch.unbind(output_list[KEY.PRED_TOTAL_FREE_ENERGY]),
+                ):
+                    A, T = head_asymptot.item(), temperature.item()
+                    result_dict = {
+                        'internal_energy': -2 * A / T,
+                        'vib_entropy': head_entropy.item() - A / (T**2),
+                        'vib_free_energy': free_energy.item(),
+                    }
+                    result_dict_list.append(result_dict)
+        return result_dict_list
+
+
+    def _calculate_debye(self, loader, desc):
+        result_dict_list = []
+        self.model.infer_debye(True)
+        debye_block = self.model.debye_block
+        with torch.no_grad():
+            for batch in tqdm(loader, desc=desc, leave=False):
+                batch = batch.to(self.device)
+                output_list = debye_block(batch).detach().cpu()
+                for internal_energy, entropy, free_energy in zip(
+                    torch.unbind(output_list[KEY.DEBYE_INTERNAL_ENERGY]),
+                    torch.unbind(output_list[KEY.DEBYE_ENTROPY]),
+                    torch.unbind(output_list[KEY.DEBYE_FREE_ENERGY]),
+                ):
+                    result_dict = {
+                        'debye_internal_energy': internal_energy.item(),
+                        'debye_entropy': entropy.item(),
+                        'debye_free_energy': free_energy.item(),
+                    }
+                    result_dict_list.append(result_dict)
+        return result_dict_list        
+
+
+    def batch_calculate(self, atoms_list, temperature_list, infer_debye=False, desc=None):
+        self.model.set_is_batch_data(True)
+
+        if isinstance(temperature_list, (int, float)):
+            temperature_list = [temperature_list]*len(atoms_list)
+        temperature_list = list(map(float, temperature_list))
+
+        lt_atoms_list, ht_atoms_list = [], []
+        lt_ht_indices, is_ht_list = [], []
+
+        for idx, (atoms, temperature) in enumerate(zip(atoms_list, temperature_list)):
+            atoms.info['temperature'] = temperature
+            if temperature > self.converged_temperature:
+                lt_ht_indices.append(len(ht_atoms_list))
+                is_ht_list.append(True)
+                ht_atoms_list.append(atoms)
+            else:
+                lt_ht_indices.append(len(lt_atoms_list))
+                is_ht_list.append(False)
+                lt_atoms_list.append(atoms)
+
+        lt_dataset = SevenNetAtomsDataset(self.cutoff, [])
+        ht_dataset = SevenNetAtomsDataset(self.cutoff, [])
+        debye_dataset = SevenNetAtomsDataset(self.cutoff, [])
+        def _unlabeled_graph_build(self, atoms):
+            #return dataload.atoms_to_graph(
+            return dataload.unlabeled_atoms_to_graph(
+            atoms,
+            self.cutoff,
+            # transfer_info=False,
+            # y_from_calc=False,
+            # allow_unlabeled=True,
+        )
+        SevenNetAtomsDataset._graph_build = _unlabeled_graph_build  # TODO: avoid monkey patching
+        # atoms_list = _set_atoms_y(atoms_list)
+        lt_dataset._atoms_list = lt_atoms_list
+        ht_dataset._atoms_list = ht_atoms_list
+
+        if infer_debye:
+            unique_T, atoms_idx, temperature_idx = np.unique(temperature_list, return_index=True, return_inverse=True)
+            debye_atoms_list = [atoms_list[idx] for idx in atoms_idx]
+            debye_dataset._atoms_list = debye_atoms_list
+
+        if self.modal is not None:
+            lt_dataset = SevenNetMultiModalDataset({self.modal: lt_dataset})
+            ht_dataset = SevenNetMultiModalDataset({self.modal: ht_dataset})
+
+        if self.batch_size is None:
+            total_atom_num = sum([len(atoms) for atoms in atoms_list])
+            batch_size = int(self.avg_atom_num * len(atoms_list) / total_atom_num)
+        else:
+            batch_size = self.batch_size
+
+        batch_size = max(1, batch_size)
+        lt_loader = DataLoader(lt_dataset, batch_size, shuffle=False)
+        ht_loader = DataLoader(ht_dataset, batch_size, shuffle=False)
+        result_dict_list = []
+        lt_result_dict_list = [] if len(lt_atoms_list) == 0 else self._calculate_lt(lt_loader, desc)
+        ht_result_dict_list = [] if len(ht_atoms_list) == 0 else self._calculate_ht(ht_loader, desc)
+
+        if infer_debye:
+            debye_loader = DataLoader(debye_dataset, batch_size=len(debye_dataset), shuffle=False)
+            unique_debye_result_dict_list = self._calculate_debye(debye_loader, desc)
+            debye_result_dict_list = []
+            for atoms, t_idx in zip(atoms_list, temperature_idx):
+                debye_result_dict_list.append({k: v*len(atoms) for k, v in unique_debye_result_dict_list[t_idx].items()})
+        else:
+            debye_result_dict_list = [
+                {'debye_internal_energy': None, 'debye_entropy': None, 'debye_free_energy': None}
+            ] * len(atoms_list)
+            
+
+        result = []
+        for idx, (atoms, lt_ht_idx, is_ht) in enumerate(zip(atoms_list, lt_ht_indices, is_ht_list)):
+            result_dict = ht_result_dict_list[lt_ht_idx] if is_ht else lt_result_dict_list[lt_ht_idx]
+            atoms.info.update(result_dict)
+            atoms.info.update(debye_result_dict_list[idx])
+            result.append(atoms)
 
         return result
 
@@ -206,6 +393,30 @@ def calc_from_config(config):
         raise NotImplementedError
 
 
+def free_calc_from_config(config):
+    calc_type = config.get('free_calc_type', None)
+    calc_args = config.get('free_calc_args', {})
+    if calc_type is None:
+        return None
+
+    if calc_type == 'threenet-batch':
+        batch_size = config.get('free_calc_batch_size', None)
+        avg_atom_num = config.get('free_calc_avg_atom_num', None)
+        return ThreeNetBatchCalculator(
+            model=config['free_calc_path'],
+            batch_size=batch_size,
+            avg_atom_num=avg_atom_num,
+            **calc_args,
+        )
+
+    elif calc_type == 'custom':
+        script = config['free_calc_path']
+        return calc_from_py(script)
+
+    else:
+        raise NotImplementedError
+
+
 def single_point_calculate(atoms, calc):
     atoms.calc = calc
     energy = atoms.get_potential_energy()
@@ -233,3 +444,15 @@ def get_energy_of_atoms_list(atoms_list, calc, desc='atoms oneshot'):
 
     energy_list = [atoms.get_potential_energy() for atoms in result]
     return energy_list
+
+
+def get_free_energy_of_atoms_list(atoms_list, temperature_list, infer_debye, calc, desc='atoms free oneshot'):
+    if isinstance(calc, ThreeNetBatchCalculator):
+        result = calc.batch_calculate(atoms_list, temperature_list, infer_debye, desc=desc)
+    else:
+        raise NotImplementedError
+
+    free_keys = ['vib_free_energy', 'vib_entropy', 'internal_energy']
+    free_keys += ['debye_free_energy', 'debye_entropy', 'debye_internal_energy']
+    free_energy_list = [{k: atoms.info[k] for k in free_keys} for atoms in result]
+    return free_energy_list

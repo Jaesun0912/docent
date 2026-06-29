@@ -8,29 +8,30 @@ calculator:
     calc_path: '7net-0'  # path of potential / if custom, *.py returning ase calculator
     calc_args:  # args pass to calculator, only for sevennet / sevennet-batch
         modal: 'mpa'
+    disorder_only: False  # model is trained on disroder-only or not (i.e., cluster expansion style or not)
     # batch_size: 10  # only for sevennet batch calculator, set batch size
     avg_atom_num: 10  # only for sevennet batch calculator, set avg # of atoms in each batch
 
 
 supercell:
-    sanitize_cif_neutral:  # adjust occupation of cif to satisfy charge neutrality using lagrange multiplier
-        attempt_tolerance: 0.01  # if abs(total charge) > attempt_tolerance, try sanitize
-        relative_error: False  # Optional (default False), if given True, use relative error
-        multiplicity_power: 2  # Optional (default 0), if value given, multiply (multiplicity**(value)) as loss weight
-        #clip: 0.1 # Optiponal, if given float, clip adjustment above this value
-    supercell_mode: 'auto'  # str, if 'auto', automatically generates, elif 'n1xn2xn3', generate n1 n2 n3 supercell (e.g. '2x2x3')
+    supercell_mode: 'auto'  # str, if 'auto', automatically generates, elif give explicit supercell matrix e.g., [2, 2, 3], [[2,0,0],[-1,2,0],[0,0,3]]
     supercell_unit: 'orbit' # str, 'orbit', 'site': if 'orbit', supercell is decided by how many orbit is required, while 'site' mode decide supercell by real atomic site
     # e.g., 4a site with {Mg: 0.5, Ca: 0.5} -> 1x1x1 cell is sufficient for 'site' mode (2 Mg, 2 Ca sites in original unit cell) while 'orbit' mode requires at least 1x1x2
     # 'orbit' mode is more realistic (especially in correlated disorder), while always requiring higher supercell multiplier (i.e. higher computational cost).
-    supercell_criterion:  # default: {latt: {min: 1, max: 10}}
-        latt:  # str, 'mul', 'latt', 'natom', 'entropy', 'permutation': # of total replication, # of replication in each lattice, # of atoms in cell, entropy, permutation
+    supercell_criterion:  # default: {mul: {min: 2, max: 100}}
+        mul:  # str, 'mul', 'latt', 'cubicity', 'natom', 'entropy', 'permutation': # of total replication, # length (in Angstrom) of lattice, cubicity of lattice, # of atoms in cell, entropy, permutation
             min: 2
-            max: 7
-    supercell_selection: 'size'  # str, 'size', 'error', 'product': For possible supercell, select smallest supercell in size / error in occupation / product of the two 
-    tolerance: 0.005  # tolerance of occupation. e.g. 0.005 means 0.5 ~ (0.495, 0.505). Reference of occupation is adjusted after sanitizing occupation for neutral (if using sanitization)
+            max: 125
+        natom:
+            max: 3000
+    supercell_selection: 'error'  # str, 'size', 'error', 'product': For possible supercell, select smallest supercell in size / error in occupation / product of the two 
+    attempt_occ_tol: 0.01  # tolerance of occupation. e.g. 0.1 means going to attempt 0.5 ~ (0.4, 0.6)
+    oxidation_state_tol: 0.05  # if oxidation number is float, give some room e.g., 0.05 means 0.67 ~ (0.62, 0.72)
+    max_occ_tol: 1.05  # maximum occupation to be rescaled.
     positional_disorder:
         # if both hard_cutoff, element_cutoff given, bond length < max(1, multiplier*(r1+r2)) would be sampled
         hard_cutoff: 1.0  # Optional[float/int], use it as global cutoff radius (Angstrom)
+        hydrogen_hard_cutoff: 0.5  # hard cutoff for hydrogen containing structures
         element_cutoff: 'cutoff.yaml'  # Optional[str], read radius of ions. see examples/elem_radii.{pkl, json, yaml}
         multiplier: 0.5  # for elemental cutoff, if (r1 + r2) * multiplier > bond length, gather it as the same orbit
 

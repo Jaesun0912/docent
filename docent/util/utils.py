@@ -4,7 +4,11 @@ from ase import Atoms
 from ase.neighborlist import primitive_neighbor_list
 from scipy.special import comb
 from itertools import combinations_with_replacement
-MAX_SUPERCELL_MUL = 10
+try:
+    from matscipy.neighbours import neighbour_list
+    matscipy = True
+except ImportError:
+    matscipy = False
 
 
 class UnionFind:
@@ -74,22 +78,6 @@ def get_eqsite_total_occu(eq_site):
     return eq_site_occus
 
 
-def get_possible_supercell_matrix(eq_sites, precision=0.01):
-    all_occus = []
-    for eq_site in eq_sites:
-        eq_site_occus = get_eqsite_total_occu(eq_site)
-        all_occus += list(eq_site_occus.values())
-
-    possible = []
-    combs = list(combinations_with_replacement(range(1, MAX_SUPERCELL_MUL+1), 3))
-    combs.sort(key=max)
-    for i, j, k in combs:
-        all_nums = [occu*i*j*k for occu in all_occus]
-        if all([diff_to_integer(num) < precision for num in all_nums]):
-            possible.append((i, j, k))
-    return possible
-
-
 def get_occupation_dict(eq_site, na, nb, nc):
     mul = na*nb*nc
     eq_site_occus = get_eqsite_total_occu(eq_site)
@@ -107,13 +95,26 @@ def get_intersection(pos, cell, radii=None, hard_cutoff=None):
         hard_cutoff = 0.
     cutoff_max = max(hard_cutoff, max(radii)*2)
 
-    edge_src, edge_dst, edge_vec = primitive_neighbor_list(
-        'ijD', [True, True, True], cell, np.array(pos), cutoff_max, self_interaction=False
-    )
+    if matscipy:
+        edge_src, edge_dst, edge_vec = neighbour_list(
+            quantities='ijD',
+            pbc=[True, True, True],
+            cell=cell,
+            positions=np.array(pos),
+            cutoff=cutoff_max
+        )
+        edge_src = edge_src.astype(np.int64)
+        edge_dst = edge_dst.astype(np.int64)
+
+    else:
+        edge_src, edge_dst, edge_vec = primitive_neighbor_list(
+            'ijD', [True, True, True], cell, np.array(pos), cutoff_max, self_interaction=False
+        )
 
     inter_src, inter_dst = [], []
     for src, dst, vec in zip(edge_src, edge_dst, edge_vec):
         dist = np.linalg.norm(vec)
+        #print(src, dst, dist)
         if dist < max(radii[src]+radii[dst], hard_cutoff):
             inter_src.append(src)
             inter_dst.append(dst)

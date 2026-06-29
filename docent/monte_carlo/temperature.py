@@ -104,9 +104,9 @@ class AdaptiveTemperatureScheduler(BaseScheduler):
         self.overlap = overlap
 
 
-    def step_next_temperature(self, energy_list):
+    def step_next_temperature(self, energy_list, free_energy_list):
         beta_ref = temp2beta(self.temperatures[0])
-        beta = solve_beta(energy_list, beta_ref, self.overlap)
+        beta = solve_beta(energy_list, free_energy_list, beta_ref, self.overlap)
         self.temperatures = [max(beta2temp(beta), self.t_low)]*len(self.temperatures)
 
 
@@ -126,11 +126,25 @@ def beta2temp(beta):
 def calculate_boltzmann_weight(
     energy_list,
     beta,
-    beta_ref=0.
+    beta_ref=0.,
+    free_energy_list = None,
+    ref_free_energy_list = None,
 ):
-    energy_list = np.array(energy_list) - min(energy_list)
-    # beta > beta_ref, energy_list > 0
-    exp = np.exp(-(beta-beta_ref)*energy_list)
+    if free_energy_list is None or ref_free_energy_list is None:
+        free_energy_list = [dict()] * len(energy_list)
+        ref_free_energy_list = [dict()] * len(energy_list)
+
+    entropy_list = [f.get('vib_entropy', 0) for f in free_energy_list]
+    ref_entropy_list = [f.get('vib_entropy', 0) for f in ref_free_energy_list]
+    internal_list = [f.get('internal_energy', 0) for f in free_energy_list]
+    ref_internal_list = [f.get('internal_energy', 0) for f in ref_free_energy_list]
+    diff = (
+        beta * (np.array(energy_list) + np.array(internal_list))
+        - beta_ref * (np.array(energy_list) + np.array(ref_internal_list))
+        + (np.array(ref_entropy_list) - np.array(entropy_list)) / kB
+    )
+    diff -= min(diff)
+    exp = np.exp(-diff)
     return exp / sum(exp)
 
 
@@ -147,6 +161,7 @@ def calculate_overlap(
 
 def solve_beta(
     energy_list,
+    free_energy_list=None,
     beta_ref=0.,
     overlap=0.7,
 ):
@@ -155,14 +170,21 @@ def solve_beta(
     # binary search
     beta_1 = beta_ref  # overlap = 1
     beta_2 = temp2beta(T_MIN)  # overlap ~ 0
+    if free_energy_list is None:
+        free_energy_list=[dict()]*len(energy_list)
 
-    if calculate_overlap(energy_list, beta_2, beta_ref) > overlap + CONV:
+    en_plus_u_list = [
+        e + f.get('internal_energy', 0)
+        for e, f in zip(energy_list, free_energy_list)
+    ]
+
+    if calculate_overlap(en_plus_u_list, beta_2, beta_ref) > overlap + CONV:
         # Solution in T < T_MIN (= 1 K), usually unphysical
         return beta_2
 
     for _ in range(MAX_ATTEMPT):
         beta = (beta_1 + beta_2)/2
-        alpha = calculate_overlap(energy_list, beta, beta_ref)
+        alpha = calculate_overlap(en_plus_u_list, beta, beta_ref)
         if abs(overlap-alpha) < CONV:
             break
         if overlap - alpha > 0:
@@ -178,9 +200,13 @@ def temp_range_from_mc_params(
     t_low: float = 0.,
     t_high: float = float('inf'),
     inv_mode: bool = True,
+    t_schedule_mode: str='temperature',
     **kwargs
 ):
-    if inv_mode:
+    if t_schedule_mode == 'geom':
+        assert t_low > 0. and 1/t_high > 0.
+        return np.geomspace(t_high, t_low, n_temperatures)
+    elif inv_mode:
         assert t_low > 0. # inv temp mode, t_low must be finite
         return 1/np.linspace(1/float(t_high), 1/float(t_low), n_temperatures)
     else:

@@ -3,12 +3,18 @@ import numpy as np
 import yaml
 import os
 from copy import deepcopy
+from tqdm import tqdm
 
-from pymatgen.core import Structure
+#from pymatgen.core import Structure
+from pymatgen.io.cif import CifParser
 
-from docent.structure.orbit import crystal_from_pymatgen
+from docent.structure.orbit import (
+    crystal_from_pymatgen_parser,
+    get_valid_occu_dct_and_lattice_transform,
+    supercell_from_occupation_dicts
+)   
 from docent.util.logger import Logger
-from docent.util.calc import calc_from_config
+from docent.util.calc import calc_from_config, free_calc_from_config
 from docent.util.parse_input import parse_config
 from docent.scripts.process_mc import process_mc_for_replica
 
@@ -44,7 +50,31 @@ def _update_config_for_mc(config):
     return config
 
 
-def main():
+def _update_radius_dict(config):
+    radii = config['positional_disorder'].get('element_cutoff', None)
+    if not isinstance(radii, str):
+        return config
+
+    if radii.endswith('.yaml'):
+        import yaml
+        with open(radii, 'r') as f:
+            radii_dict = yaml.load(f, Loader=yaml.FullLoader)
+    elif radii.endswith('.json'):
+        import json
+        with open(radii, 'r') as f:
+            radii_dict = json.load(f)
+    elif radii.endswith('.pkl') or radii.endswith('.pickle'):
+        import pickle
+        with open(radii, 'rb') as f:
+            radii_dict = pickle.load(f)
+    else:
+        raise NotImplementedError(f'Failed to read file: {radii}')
+
+    config['positional_disorder']['element_cutoff'] = radii_dict
+    return config
+
+
+def main_v1():
     logger = Logger('log.docent')
     logger.greetings()
     logger.writeline('\nstarting docent\n')
@@ -75,14 +105,15 @@ def main():
     for idx, cif in enumerate(cifs):
         logger.log_bar()
         logger.writeline(f'Crystal {idx+1}/{len(cifs)}')
-        stct = Structure.from_file(cif)
-        supercell = crystal_from_pymatgen(stct, config)
+        parser = CifParser(cif, occupancy_tolerance=config.get('max_occ_tol', 1.05))
+        supercell = crystal_from_pymatgen_parser(parser, config)
         try:
             assert supercell is not None
             crystals = []
             for _ in range(config['mc_params']['n_replicas']):
                 supercell.random_generate_structure()
-                crystals.append(deepcopy(supercell))
+                crystals.append(supercell.copy())
+                #crystals.append(deepcopy(supercell))
             rformula = supercell.info['rformula']
         except:  # case when occupying supercell failed within criterion
             logger.log_bar()
@@ -109,3 +140,89 @@ def main():
         process_mc_for_replica(config, crystals, calc, save_path)
 
     logger.log_terminate()
+
+
+def main():
+    logger = Logger('log.docent')
+    logger.greetings()
+    logger.writeline('\nstarting docent\n')
+
+    config_path = sys.argv[1]
+    with open(config_path) as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+
+    logger.writeline(f'Reading config file {config_path} for docent.')
+    config_all = parse_config(config)
+    logger.writeline('Reading config successful!')
+    logger.writeline('\nConfigs for docent')
+
+    config = {}
+    for key, conf in config_all.items():
+        logger.writeline(f'--------------  {key}  -------------')
+        logger.log_config(conf)
+        config.update(conf)
+        logger.writeline('')
+    config = _update_config_for_mc(config)
+    config = _update_radius_dict(config)
+
+    np.random.seed(config['seed'])
+    calc = calc_from_config(config)
+    free_calc = free_calc_from_config(config)
+    cifs = _get_all_cifs(config['input_path'])
+    cifs.sort()
+    logger.init_recorder(config['mc_params']['n_replicas'])
+
+    for idx, cif in enumerate(cifs):
+        logger.log_bar()
+        logger.writeline(f'Crystal {idx+1}/{len(cifs)}')
+        parser = CifParser(cif, occupancy_tolerance=config.get('max_occ_tol', 1.05))
+        stct = parser.parse_structures(primitive=False)[0]
+        occu_dct, transforms, final_err = \
+            get_valid_occu_dct_and_lattice_transform(parser, config)
+        try:
+            assert transforms is not None
+            crystals = []
+            for _ in tqdm(
+                range(config['mc_params']['n_replicas']), desc='gen supercell'
+            ):
+                idx = np.random.choice(np.arange(len(transforms)), 1)[0]
+                matrix = transforms[idx]
+                supercell = supercell_from_occupation_dicts(
+                    stct, config, matrix, occu_dct
+                )
+                supercell.info = {'matrix': matrix}
+                supercell.random_generate_structure()
+                crystals.append(supercell)
+        except:  # case when occupying supercell failed within criterion
+            logger.log_bar()
+            logger.writeline(f'WARNING: failed to generate supercell for {cif}!')
+            logger.writeline('This might means that criteria is too tight for this cif.')
+            logger.writeline('We will skip this for Monte Carlo')
+            logger.writeline(f'Error number: {final_err}')
+            # final_err
+            # -1: Liquid-like structure
+            # -2: Occupation range can not be found
+            # -3: Charge balance impossible
+            # -4: Some orbit is not occupied
+            # -5: Can not find possible cells
+            logger.log_bar()
+            continue
+
+        save_path = os.path.basename(cif).replace('.cif', '')
+        save_path = f'{config["output_path"]}/{save_path}/'
+        os.makedirs(save_path, exist_ok=True)
+        info = {
+            'CIF_path': cif,
+            'Formula': crystals[0].to_ase_atoms().get_chemical_formula(empirical=True),
+            'Supercell': supercell.info['matrix'].tolist(),
+            'Entropy': supercell.entropy,
+            'n_permutation': f"{supercell.get_num_every_combination():.2e}",
+            'disorder': supercell.get_disorder_symbol(),
+            'orbit_disorder': set(supercell.get_disorder_orbit_symbols()),
+        }
+        logger.log_bar()
+        logger.log_config(info)
+        process_mc_for_replica(config, crystals, calc, free_calc, save_path)
+
+    logger.log_terminate()
+
