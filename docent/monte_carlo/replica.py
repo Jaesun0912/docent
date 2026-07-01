@@ -215,6 +215,7 @@ class Replica:
                 #accepted_crystals.append(deepcopy(new_crystal))
                 #accepted_crystals.append(new_crystal)
                 crystal.energy = new_energy
+                crystal.info.update(new_free_energy_info)
                 self.mc_accept[idx] += 1
                 self.energy_recorder[idx].append(new_energy)
                 self.free_energy_recorder[idx].append(new_free_energy_info)
