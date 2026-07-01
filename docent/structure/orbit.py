@@ -413,7 +413,7 @@ class Crystal:
         calc_result = {'energy': self.energy}
         calc = SinglePointCalculator(atoms, **calc_result)
         atoms = calc.get_atoms()
-        atoms.info = self.info
+        atoms.info = self.info.copy()
 
         if assign_site_info:
             for key, array in site_info.items():

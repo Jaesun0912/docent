@@ -72,8 +72,8 @@ class Replica:
         for idx, (energy, free_energy, crystal) in enumerate(
             zip(energy_list, free_energy_list, self.crystals)
         ):
-            self.mc_recorder['energy'][float('inf')].append(energy)
-            self.mc_recorder['free_energy'][float('inf')].append(free_energy)
+            #self.mc_recorder['energy'][float('inf')].append(energy)
+            #self.mc_recorder['free_energy'][float('inf')].append(free_energy)
             crystal.energy = energy
             crystal.info.update(free_energy)
             self.energy_recorder[idx].append(energy)
@@ -256,7 +256,7 @@ class Replica:
         self.t_scheduler.step_next_temperature(
             [c.energy for c in self.crystals], [c.info for c in self.crystals]
         )
-        t_new = self.t_scheduler.temperatures[0]
+        t_new = self.t_scheduler._next_temperatures[0]
         atoms_list = [crystal.to_ase_atoms() for crystal in self.crystals]
         new_free_energy_list = (
             get_free_energy_of_atoms_list(
@@ -324,8 +324,21 @@ class Replica:
 
 
     def update_mc_result(self):
-        for temperature, energy_list, free_energy_list in zip(
-            self.t_scheduler.temperatures, self.energy_recorder, self.free_energy_recorder
+        if len(self.resampled_free_energy_recorder) == 0:
+            self.resampled_free_energy_recorder = [dict()]*len(energy_list)
+
+        for (
+            temperature,
+            energy_list,
+            free_energy_list,
+            resampled_free_energy,
+            n_resampled,
+        ) in zip(
+            self.t_scheduler.temperatures,
+            self.energy_recorder,
+            self.free_energy_recorder,
+            self.resampled_free_energy_recorder,
+            self.rx_accept,
         ):
             temperature = round(temperature, 2)
             if temperature not in self.mc_recorder['energy']:
@@ -335,8 +348,8 @@ class Replica:
                 self.mc_recorder['num_resampled'][temperature] = []
             self.mc_recorder['energy'][temperature].append(energy_list[-1])
             self.mc_recorder['free_energy'][temperature].append(free_energy_list[-1])
-            self.mc_recorder['free_energy_resampled'][temperature].append(self.resampled_free_energy_recorder)
-            self.mc_recorder['num_resampled'][temperature].append(self.rx_accept.tolist())
+            self.mc_recorder['free_energy_resampled'][temperature].append(resampled_free_energy)
+            self.mc_recorder['num_resampled'][temperature].append(n_resampled)
 
 
     def prepare_next_cycle(self):

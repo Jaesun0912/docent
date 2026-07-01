@@ -22,6 +22,7 @@ class BaseScheduler:
 
 
     def update_cycle(self):
+        self.temperatures = self._next_temperatures
         self.cycle += 1
 
 
@@ -45,7 +46,7 @@ class ConstantTemperatureScheduler(BaseScheduler):
 
 
     def step_next_temperature(self, energy_list=None):
-        pass
+        self._next_temperatures = self.temperatures
 
     def is_stop_iter(self):
         return self.cycle >= self.max_cycle
@@ -76,11 +77,11 @@ class LinearTemperatureScheduler(BaseScheduler):
         if self.inv_mode:
             beta = temp2beta(self.temperatures[0])
             beta += self.delta
-            self.temperatures = [beta2temp(beta)]*len(self.temperatures)
+            self._next_temperatures = [beta2temp(beta)]*len(self.temperatures)
         else:
-            self.temperatures = [t-self.delta for t in self.temperatures]
+            self._next_temperatures = [t-self.delta for t in self.temperatures]
         if self.cycle == self.max_cycle - 1:
-            self.temperatures = [self.t_low]*len(self.temperatures)
+            self._next_temperatures = [self.t_low]*len(self.temperatures)
 
 
     def is_stop_iter(self):
@@ -107,7 +108,7 @@ class AdaptiveTemperatureScheduler(BaseScheduler):
     def step_next_temperature(self, energy_list, free_energy_list):
         beta_ref = temp2beta(self.temperatures[0])
         beta = solve_beta(energy_list, free_energy_list, beta_ref, self.overlap)
-        self.temperatures = [max(beta2temp(beta), self.t_low)]*len(self.temperatures)
+        self._next_temperatures = [max(beta2temp(beta), self.t_low)]*len(self.temperatures)
 
 
     def is_stop_iter(self):

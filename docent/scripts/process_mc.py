@@ -61,10 +61,10 @@ def process_mc_for_replica(config, crystals, calc, free_calc, save_path):
             if (mc_step + 1) % save_per_mc_step == 0:
                 replica.save_replica_ase_atoms(f'{save_path}/C{cycle}M{mc_step}.extxyz')
 
-        #replica.update_mc_result()
+        if cycle % save_per_cycle == 0:
+            replica.save_replica_ase_atoms(f'{save_path}/C{cycle}.extxyz')
         logger.finalize_progress_bar()
 
-        t_before_update = replica.t_scheduler.temperatures
         if stop := replica.t_scheduler.is_stop_iter():
             pass
         elif mc_method == 'pt':
@@ -74,14 +74,15 @@ def process_mc_for_replica(config, crystals, calc, free_calc, save_path):
 
         replica.update_mc_result()
         if cycle % save_per_cycle == 0:
-            replica.save_replica_ase_atoms(f'{save_path}/C{cycle}.extxyz')
             replica.save_mc_result(f'{save_path}/mc_result.pkl')
 
         stat_dct = replica.get_statistics()
-        for idx, t in enumerate(t_before_update):
+        for idx, t in enumerate(replica.t_scheduler.temperatures):
             stat_dct[f'R{idx+1}']['T (K)'] = t
             if stop and mc_method == 'pa':
                 stat_dct[f'R{idx+1}']['RX accept'] = '----'
+        if mc_method != 'pt':
+            stat_dct['Final']['T (K)'] = replica.t_scheduler.temperatures[0]
         logger.recorder.update_recorder(stat_dct)
         logger.log_mc_cycle()
         if stop:
