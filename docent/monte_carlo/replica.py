@@ -325,7 +325,7 @@ class Replica:
 
     def update_mc_result(self):
         if len(self.resampled_free_energy_recorder) == 0:
-            self.resampled_free_energy_recorder = [dict()]*len(energy_list)
+            self.resampled_free_energy_recorder = [dict()]*len(self.t_scheduler.temperatures)
 
         for (
             temperature,
