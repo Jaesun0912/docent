@@ -4,7 +4,7 @@ class Essential:
 kB = 8.617333262e-5  # in eV/K
 T_MIN = 1  # in K
 MAX_SUPERCELL_MUL = 1000
-LOG_ORDER = ['T (K)', 'mean (eV)', 'std (eV)', 'min (eV)', 'Q1 (eV)', 'mid (eV)', 'Q3 (eV)', 'max (eV)', 'MC accept', 'RX accept']
+LOG_ORDER = ['T (K)', 'lambda', 'RX accept', 'MC accept', 'mean (eV)', 'std (eV)', 'min (eV)', 'Q1 (eV)', 'mid (eV)', 'Q3 (eV)', 'max (eV)']
 RES_INTERVAL = 3
 FULLY_OCCUPY = 0.99
 

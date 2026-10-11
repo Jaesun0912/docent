@@ -129,10 +129,11 @@ def get_intersection(pos, cell, radii=None, hard_cutoff=None):
     return uf.groups()
 
 
-def add_if_is_not_adaptive(tconfig, key, t_kwargs):
-    if isinstance(tconfig[key], str) and tconfig[key].lower() == 'adaptive':
+def add_if_is_not_adaptive(tconfig, key_config, t_kwargs, key_kwargs=None):
+    if isinstance(tconfig[key_config], str) and tconfig[key_config].lower() == 'adaptive':
         return
-    t_kwargs.update({key: tconfig[key]})
+    key_kwargs = key_config if key_kwargs is None else key_kwargs
+    t_kwargs.update({key_kwargs: tconfig[key_config]})
 
 
 if __name__=='__main__':

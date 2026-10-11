@@ -5,7 +5,7 @@ from distutils.core import setup
 
 setup(
     name="docent",
-    version='0.3.0',
+    version='0.4.0',
     packages=[
         'docent',
         'docent.monte_carlo',

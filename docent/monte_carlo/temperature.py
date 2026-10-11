@@ -21,6 +21,10 @@ class BaseScheduler:
         self.cycle = 0
 
 
+    def __len__(self):
+        return 1
+
+
     def update_cycle(self):
         self.temperatures = self._next_temperatures
         self.cycle += 1
@@ -45,7 +49,7 @@ class ConstantTemperatureScheduler(BaseScheduler):
         self.temperatures = temperatures
 
 
-    def step_next_temperature(self, energy_list=None):
+    def step_next_temperature(self, **kwargs):
         self._next_temperatures = self.temperatures
 
     def is_stop_iter(self):
@@ -73,7 +77,7 @@ class LinearTemperatureScheduler(BaseScheduler):
         self.inv_mode = inv_mode
 
 
-    def step_next_temperature(self, energy_list=None):
+    def step_next_temperature(self, **kwargs):
         if self.inv_mode:
             beta = temp2beta(self.temperatures[0])
             beta += self.delta
@@ -113,6 +117,48 @@ class AdaptiveTemperatureScheduler(BaseScheduler):
 
     def is_stop_iter(self):
         return self.cycle >= self.max_cycle or self.temperatures[0] <= self.t_low
+
+
+class MultiStepTemperatureScheduler(BaseScheduler):
+    def __init__(
+        self,
+        scheduler_list: List,
+    ):
+        n_cycles = sum([scheduler.max_cycle for scheduler in scheduler_list])
+        t_low = scheduler_list[-1].t_low
+        super().__init__(
+            n_cycles=n_cycles,
+            t_low=t_low,
+        )
+        self.scheduler_list = scheduler_list
+        self.temperatures = scheduler_list[0].temperatures
+
+
+    def __len__(self):
+        return len(self.scheduler_list)
+
+
+    def _get_stop_iter_list(self):
+        return [
+            scheduler.is_stop_iter() for scheduler in self.scheduler_list
+        ]
+
+
+    def step_next_temperature(self, energy_list, free_energy_list):
+        scheduler_idx = sum(self._get_stop_iter_list())
+        self.scheduler_list[scheduler_idx].step_next_temperature(energy_list, free_energy_list)
+        self._next_temperatures = self.scheduler_list[scheduler_idx]._next_temperatures
+
+
+    def is_stop_iter(self):
+        return all(self._get_stop_iter_list())
+
+
+    def update_cycle(self):
+        scheduler_idx = sum(self._get_stop_iter_list())
+        self.scheduler_list[scheduler_idx].update_cycle()
+        self.temperatures = self._next_temperatures
+        self.cycle += 1
         
 
 def temp2beta(temp):
@@ -146,7 +192,7 @@ def calculate_boltzmann_weight(
     )
     diff -= min(diff)
     exp = np.exp(-diff)
-    return exp / sum(exp)
+    return exp / np.sum(exp)
 
 
 def calculate_overlap(
