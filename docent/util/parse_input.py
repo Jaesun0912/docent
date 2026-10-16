@@ -50,7 +50,7 @@ def check_calc_config(config):
 
 def check_free_calc_config(config):
     config_free = config['free_calculator']
-    assert config_free['free_calc_type'] is None or config_free['free_calc_type'].lower() in ['threenet-batch', 'custom']
+    assert config_free['free_calc_type'] is None or config_free['free_calc_type'].lower() in ['threenet-batch', 'combined-batch', 'analytic-sevennet-batch', 'custom']
     assert isinstance(config_free['free_calc_path'], str)
     assert _isinstance_in_list(config_free['free_calc_batch_size'], [int, type(None)])
     assert _isinstance_in_list(config_free['free_calc_avg_atom_num'], [int, type(None)])

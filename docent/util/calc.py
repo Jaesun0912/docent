@@ -167,6 +167,103 @@ class SevenNetBatchCalculator(SevenNetEnergyCalculator):
         return result
 
 
+class AnalyticSevenNetBatchCalculator(SevenNetEnergyCalculator):
+    # TODO: implement this in original sevennet
+    # To avoid dependency issues with pyte
+    def __init__(
+        self,
+        model='7net-0',
+        file_type='checkpoint',
+        device='auto',
+        modal=None,
+        use_avg_model=False,
+        compile=False,
+        compile_kwargs=None,
+        enable_cueq=False,
+        sevennet_config=None,
+        batch_size=None,
+        avg_atom_num=None,
+        **kwargs
+    ):
+        super().__init__(
+            model=model,
+            file_type=file_type,
+            device=device,
+            modal=modal,
+            use_avg_model=use_avg_model,
+            compile=compile,
+            compile_kwargs=compile_kwargs,
+            enable_cueq=enable_cueq,
+            sevennet_config=sevennet_config,
+            **kwargs
+        )
+        if batch_size is None and avg_atom_num is None:
+            raise ValueError('one of batch size or avg_atom_num should be given')
+
+        self.batch_size = batch_size
+        self.avg_atom_num = avg_atom_num
+
+    def batch_calculate(self, atoms_list, temperature_list, infer_debye=False, desc=None):
+        self.model.set_is_batch_data(True)
+
+        if isinstance(temperature_list, (int, float)):
+            temperature_list = [temperature_list]*len(atoms_list)
+        temperature_list = list(map(float, temperature_list))
+
+        for idx, (atoms, temperature) in enumerate(zip(atoms_list, temperature_list)):
+            atoms.info['temperature'] = temperature
+
+        dataset = SevenNetAtomsDataset(self.cutoff, [])
+        def _unlabeled_graph_build(self, atoms):
+            #return dataload.atoms_to_graph(
+            return dataload.unlabeled_atoms_to_graph(
+            atoms,
+            self.cutoff,
+            # transfer_info=False,
+            # y_from_calc=False,
+            # allow_unlabeled=True,
+        )
+        SevenNetAtomsDataset._graph_build = _unlabeled_graph_build  # TODO: avoid monkey patching
+        # atoms_list = _set_atoms_y(atoms_list)
+        dataset._atoms_list = atoms_list
+
+        if self.modal is not None:
+            dataset = SevenNetMultiModalDataset({self.modal: dataset})
+
+        if self.batch_size is None:
+            total_atom_num = sum([len(atoms) for atoms in atoms_list])
+            batch_size = int(self.avg_atom_num * len(atoms_list) / total_atom_num)
+        else:
+            batch_size = self.batch_size
+
+        batch_size = max(1, batch_size)
+        loader = DataLoader(dataset, batch_size, shuffle=False)
+        result_dict_list = []
+
+        with torch.no_grad():
+            for batch in tqdm(loader, desc=desc, leave=False):
+                batch = batch.to(self.device)
+                output_list = self.model(batch).detach().cpu()
+                for internal_energy, entropy, free_energy in zip(
+                    torch.unbind(output_list[KEY.PRED_TOTAL_INTERNAL_ENERGY]),
+                    torch.unbind(output_list[KEY.PRED_TOTAL_ENTROPY]),
+                    torch.unbind(output_list[KEY.PRED_TOTAL_FREE_ENERGY]),
+                ):
+                    result_dict = {
+                        'internal_energy': internal_energy.item(),
+                        'vib_entropy': entropy.item(),
+                        'vib_free_energy': free_energy.item(),
+                    }
+                    result_dict_list.append(result_dict)
+
+        result = []
+        for atoms, result_dict in zip(atoms_list, result_dict_list):
+            atoms.info.update(result_dict)
+            result.append(atoms)
+
+        return result    
+
+
 class ThreeNetBatchCalculator(SevenNetBatchCalculator):
     # TODO: implement this in original sevennet
     # To avoid dependency issues with pyte
@@ -353,6 +450,50 @@ class ThreeNetBatchCalculator(SevenNetBatchCalculator):
         return result
 
 
+class CombinedBatchCalculator:
+    def __init__(
+        self,
+        calc_list,
+    ):
+        self.calc_list = calc_list
+
+    def __len__(self):
+        return len(calc_list)
+
+    def batch_calculate(self, atoms_list, temperature_list, infer_debye=False, desc=None):
+        merge_keys = ['internal_energy', 'entropy', 'free_energy']
+        result_dict_list = [[] for _ in atoms_list]
+
+        for calc in self.calc_list:
+            # purge results from other calculator
+            for atoms in atoms_list:
+                keys = atoms.info.copy().keys()
+                for k in keys:
+                    if any([k.endswith(mkey) for mkey in merge_keys]):
+                        del atoms.info[k]
+
+            result = calc.batch_calculate(atoms_list, temperature_list, infer_debye, desc)
+            for idx, atoms in enumerate(result):
+                result_dict_list[idx].append(atoms.info.copy())
+
+        # merge result
+        result = []
+        for atoms, result_dict_by_calc in zip(atoms_list, result_dict_list):
+            merged_info = {}
+            for idx, result_dict in enumerate(result_dict_by_calc):
+                for k, v in result_dict.items():
+                    if not any([k.endswith(mkey) for mkey in merge_keys]):
+                        continue
+                    merged_info[f'{idx}_{k}'] = v
+                    if k not in merged_info:
+                        merged_info[k] = 0.
+                    merged_info[k] += v
+            atoms.info.update(merged_info)
+            result.append(atoms)
+
+        return result
+
+
 def calc_from_py(script):
     import importlib.util
     from pathlib import Path
@@ -409,6 +550,42 @@ def free_calc_from_config(config):
             **calc_args,
         )
 
+    elif calc_type == 'combined-batch':
+        implemented_cls = {
+            'threenet-batch': ThreeNetBatchCalculator,
+            'analytic-sevennet-batch': AnalyticSevenNetBatchCalculator,
+        }
+        calc_list = []
+        for args_dict in calc_args:
+            model = args_dict.pop('free_calc_path')
+            calc_type = args_dict.pop('free_calc_type')
+            calc_cls = implemented_cls.get(calc_type, None)
+            if calc_cls is None:
+                raise NotImplementedError
+
+            batch_size = args_dict.pop('free_calc_batch_size', None)
+            avg_atom_num = args_dict.pop('free_calc_avg_atom_num', None)
+
+            calc_list.append(
+                calc_cls(
+                    model=model,
+                    batch_size=batch_size,
+                    avg_atom_num=avg_atom_num,
+                    **args_dict,
+                )
+            )
+        return CombinedBatchCalculator(calc_list=calc_list)
+
+    elif calc_type == 'analytic-sevennet-batch':
+        batch_size = config.get('free_calc_batch_size', None)
+        avg_atom_num = config.get('free_calc_avg_atom_num', None)
+        return AnalyticSevenNetBatchCalculator(
+            model=config['free_calc_path'],
+            batch_size=batch_size,
+            avg_atom_num=avg_atom_num,
+            **calc_args,
+        )
+
     elif calc_type == 'custom':
         script = config['free_calc_path']
         return calc_from_py(script)
@@ -447,12 +624,29 @@ def get_energy_of_atoms_list(atoms_list, calc, desc='atoms oneshot'):
 
 
 def get_free_energy_of_atoms_list(atoms_list, temperature_list, infer_debye, calc, desc='atoms free oneshot'):
-    if isinstance(calc, ThreeNetBatchCalculator):
+    if isinstance(
+        calc, 
+        (
+            ThreeNetBatchCalculator,
+            CombinedBatchCalculator,
+            AnalyticSevenNetBatchCalculator
+        )
+    ):
         result = calc.batch_calculate(atoms_list, temperature_list, infer_debye, desc=desc)
     else:
         raise NotImplementedError
 
-    free_keys = ['vib_free_energy', 'vib_entropy', 'internal_energy']
-    free_keys += ['debye_free_energy', 'debye_entropy', 'debye_internal_energy']
-    free_energy_list = [{k: atoms.info[k] for k in free_keys} for atoms in result]
+    #free_keys = ['vib_free_energy', 'vib_entropy', 'internal_energy']
+    #free_keys += ['debye_free_energy', 'debye_entropy', 'debye_internal_energy']
+    #free_energy_list = [{k: atoms.info[k] for k in free_keys} for atoms in result]
+    save_keys = ['free_energy', 'entropy', 'internal_energy']
+    free_energy_list = []
+    for atoms in result:
+        free_info = {
+            k: atoms.info[k]
+            for k in atoms.info
+            if any([k.endswith(skey) for skey in save_keys])
+        }
+        free_energy_list.append(free_info)
+
     return free_energy_list

@@ -308,13 +308,15 @@ class Replica:
         probs = []
         num_rep = len(self.crystals)
         t_orig = self.t_scheduler.temperatures[0]
+        lambda_switch = self.get_current_lambda()
+        require_free_energy_calculation = free_calc is not None and lambda_switch != 0
+
         self.t_scheduler.step_next_temperature(
-            [c.energy for c in self.crystals], [c.info for c in self.crystals]
+            [c.energy for c in self.crystals],
+            [c.info for c in self.crystals] if require_free_energy_calculation else None,
         )
         t_new = self.t_scheduler._next_temperatures[0]
 
-        lambda_switch = self.get_current_lambda()
-        require_free_energy_calculation = free_calc is not None and lambda_switch != 0
 
         new_free_energy_list = None
 

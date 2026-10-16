@@ -121,6 +121,8 @@ def process_mc_for_replica(config, crystals, calc, free_calc, save_path):
                 replica = process_lambda_switching(
                     config, replica, calc, free_calc, save_path,
                 )
+                if cycle % save_per_cycle == 0:
+                    replica.save_replica_ase_atoms(f'{save_path}/C{cycle}_switched.extxyz')
             # cf) lambda = 1, no need to go back, keep the lane
 
         else:
@@ -176,9 +178,9 @@ def process_lambda_switching(config, replica, calc, free_calc, save_path):
         # TODO stat_dct[f'Final']['lambda'] = 0
         logger.recorder.update_recorder(stat_dct)
         logger.log_mc_cycle()
+        replica.prepare_next_cycle()
         if replica.lambda_sampler.is_stop_iter():  # TODO
             break
-        replica.prepare_next_cycle()
 
         cycle += 1
 
